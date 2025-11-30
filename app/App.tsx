@@ -20,8 +20,16 @@ export default function App() {
   }, []);
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-end bg-slate-100 dark:bg-slate-950">
-      <div className="mx-auto w-full max-w-5xl">
+    <main className="flex min-h-screen flex-col bg-slate-50 dark:bg-slate-950">
+      {/* ADDED: Simple Header */}
+      <header className="w-full max-w-5xl mx-auto px-4 py-6 flex items-center justify-between">
+        <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+          <span className="text-purple-600">✦</span> Fourify Assistant
+        </h1>
+        {/* Optional: Add theme toggle button here if you want */}
+      </header>
+
+      <div className="flex-1 w-full max-w-5xl mx-auto px-4 pb-4">
         <ChatKitPanel
           theme={scheme}
           onWidgetAction={handleWidgetAction}
