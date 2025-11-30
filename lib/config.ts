@@ -30,6 +30,6 @@ export const getThemeConfig = (theme: ColorScheme): ThemeOption => ({
       level: 1,
     },
   },
-  radius: "medium", // Options: "none" | "small" | "medium" | "large" | "round" | "full"
+  radius: "sharp", // Options: "none" | "small" | "medium" | "large" | "round" | "full"
 });
 
