@@ -17,19 +17,19 @@ export const PLACEHOLDER_INPUT = "Ask anything...";
 
 export const GREETING = "How can I help you today?";
 
+// lib/config.ts
 export const getThemeConfig = (theme: ColorScheme): ThemeOption => ({
   color: {
     grayscale: {
-      hue: 220,
+      hue: 260, // Change hue (e.g., 220 is blue-gray, 260 is purple-ish)
       tint: 6,
       shade: theme === "dark" ? -1 : -4,
     },
     accent: {
-      primary: theme === "dark" ? "#f1f5f9" : "#0f172a",
+      primary: theme === "dark" ? "#a855f7" : "#7e22ce", // Purple hex codes
       level: 1,
     },
   },
-  radius: "round",
-  // Add other theme options here
-  // chatkit.studio/playground to explore config options
+  radius: "medium", // Options: "none" | "small" | "medium" | "large" | "round" | "full"
 });
+
