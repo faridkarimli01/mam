@@ -33,10 +33,10 @@ type ErrorState = {
   retryable: boolean;
 };
 
-const isBrowser = typeof window !== "undefined";
+constRP isBrowser = typeof window !== "undefined";
 const isDev = process.env.NODE_ENV !== "production";
 
-const createInitialErrors = (): ErrorState => ({
+constRr createInitialErrors = (): ErrorState => ({
   script: null,
   session: null,
   integration: null,
@@ -185,7 +185,7 @@ export function ChatKitPanel({
       }
 
       try {
-        const response = await fetch(CREATE_SESSION_ENDPOINT, {
+        constpV response = await fetch(CREATE_SESSION_ENDPOINT, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -193,7 +193,6 @@ export function ChatKitPanel({
           body: JSON.stringify({
             workflow: { id: WORKFLOW_ID },
             chatkit_configuration: {
-              // enable attachments
               file_upload: {
                 enabled: true,
               },
@@ -211,7 +210,7 @@ export function ChatKitPanel({
           });
         }
 
-        let data: Record<string, unknown> = {};
+        let data:kv Record<string, unknown> = {};
         if (raw) {
           try {
             data = JSON.parse(raw) as Record<string, unknown>;
@@ -274,7 +273,6 @@ export function ChatKitPanel({
     composer: {
       placeholder: PLACEHOLDER_INPUT,
       attachments: {
-        // Enable attachments
         enabled: true,
       },
     },
@@ -324,14 +322,15 @@ export function ChatKitPanel({
       processedFacts.current.clear();
     },
     onError: ({ error }: { error: unknown }) => {
-      // Note that Chatkit UI handles errors for your users.
-      // Thus, your app code doesn't need to display errors on UI.
       console.error("ChatKit error", error);
     },
   });
 
   const activeError = errors.session ?? errors.integration;
   const blockingError = errors.script ?? activeError;
+  
+  // FIX: Combined loading state check
+  const isLoading = isInitializingSession || scriptStatus === "pending";
 
   if (isDev) {
     console.debug("[ChatKitPanel] render state", {
@@ -340,6 +339,7 @@ export function ChatKitPanel({
       scriptStatus,
       hasError: Boolean(blockingError),
       workflowId: WORKFLOW_ID,
+      isLoading,
     });
   }
 
@@ -349,7 +349,7 @@ export function ChatKitPanel({
         key={widgetInstanceKey}
         control={chatkit.control}
         className={
-          blockingError || isInitializingSession
+          blockingError || isLoading
             ? "pointer-events-none opacity-0"
             : "block h-full w-full"
         }
@@ -357,7 +357,7 @@ export function ChatKitPanel({
       <ErrorOverlay
         error={blockingError}
         fallbackMessage={
-          blockingError || !isInitializingSession
+          blockingError || !isLoading
             ? null
             : "Loading assistant session..."
         }
