@@ -1,7 +1,11 @@
 import { WORKFLOW_ID } from "@/lib/config";
 import { db } from "@/lib/firebase-admin";
+// 1. Import getAuth to verify users via Firebase Admin
+import { getAuth } from "firebase-admin/auth"; 
 
-export const runtime = "edge";
+// 2. SWITCH RUNTIME TO NODEJS
+// The Firebase Admin SDK requires Node.js APIs and cannot run on "edge".
+export const runtime = "nodejs"; 
 
 interface CreateSessionRequestBody {
   workflow?: { id?: string | null } | null;
@@ -12,6 +16,8 @@ interface CreateSessionRequestBody {
       enabled?: boolean;
     };
   };
+  // 3. Add email field to the interface
+  email?: string | null; 
 }
 
 const DEFAULT_CHATKIT_BASE = "https://api.openai.com";
@@ -38,15 +44,24 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     const parsedBody = await safeParseJson<CreateSessionRequestBody>(request);
-    const { userId, sessionCookie: resolvedSessionCookie } =
-      await resolveUserId(request);
+
+    // 4. Extract email and resolve the secure User ID
+    const emailFromRequest = parsedBody?.email ?? null;
+    
+    // Pass the email to the resolver function
+    const { userId, sessionCookie: resolvedSessionCookie } = await resolveUserId(
+      request,
+      emailFromRequest 
+    );
     sessionCookie = resolvedSessionCookie;
+
     const resolvedWorkflowId =
-      parsedBody?.workflow?. id ??  parsedBody?.workflowId ??  WORKFLOW_ID;
+      parsedBody?.workflow?.id ?? parsedBody?.workflowId ?? WORKFLOW_ID;
 
     if (process.env.NODE_ENV !== "production") {
       console.info("[create-session] handling request", {
         resolvedWorkflowId,
+        userId, // Log the resolved User ID
         body: JSON.stringify(parsedBody),
       });
     }
@@ -60,8 +75,9 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    const apiBase = process.env.CHATKIT_API_BASE ??  DEFAULT_CHATKIT_BASE;
+    const apiBase = process.env.CHATKIT_API_BASE ?? DEFAULT_CHATKIT_BASE;
     const url = `${apiBase}/v1/chatkit/sessions`;
+    
     const upstreamResponse = await fetch(url, {
       method: "POST",
       headers: {
@@ -71,11 +87,11 @@ export async function POST(request: Request): Promise<Response> {
       },
       body: JSON.stringify({
         workflow: { id: resolvedWorkflowId },
-        user: userId,
+        user: userId, // This is now the secure Firebase UID
         chatkit_configuration: {
           file_upload: {
             enabled:
-              parsedBody?.chatkit_configuration?.file_upload?.enabled ??  false,
+              parsedBody?.chatkit_configuration?.file_upload?.enabled ?? false,
           },
         },
       }),
@@ -88,11 +104,11 @@ export async function POST(request: Request): Promise<Response> {
       });
     }
 
-    const upstreamJson = (await upstreamResponse.json(). catch(() => ({}))) as
+    const upstreamJson = (await upstreamResponse.json().catch(() => ({}) )) as
       | Record<string, unknown>
       | undefined;
 
-    if (! upstreamResponse.ok) {
+    if (!upstreamResponse.ok) {
       const upstreamError = extractUpstreamError(upstreamJson);
       console.error("OpenAI ChatKit session creation failed", {
         status: upstreamResponse.status,
@@ -102,7 +118,7 @@ export async function POST(request: Request): Promise<Response> {
       return buildJsonResponse(
         {
           error:
-            upstreamError ?? 
+            upstreamError ??
             `Failed to create session: ${upstreamResponse.statusText}`,
           details: upstreamJson,
         },
@@ -112,20 +128,20 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    const clientSecret = upstreamJson?.client_secret ??  null;
+    const clientSecret = upstreamJson?.client_secret ?? null;
     const expiresAfter = upstreamJson?.expires_after ?? null;
 
     // ============================================
     // FIREBASE INTEGRATION - Store session data
     // ============================================
     try {
-      await db.collection("sessions"). doc(userId).set(
+      await db.collection("sessions").doc(userId).set(
         {
           userId,
           workflowId: resolvedWorkflowId,
           clientSecret,
           expiresAfter,
-          createdAt: new Date(). toISOString(),
+          createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           fileUploadEnabled:
             parsedBody?.chatkit_configuration?.file_upload?.enabled ?? false,
@@ -140,13 +156,14 @@ export async function POST(request: Request): Promise<Response> {
         });
       }
     } catch (firebaseError) {
-      console. error("[create-session] Firebase error", firebaseError);
+      console.error("[create-session] Firebase error", firebaseError);
       // Don't fail the request if Firebase errors, just log it
     }
 
     const responsePayload = {
       client_secret: clientSecret,
       expires_after: expiresAfter,
+      user_id: userId, // Optional: Return the UID to client if needed
     };
 
     return buildJsonResponse(
@@ -155,8 +172,19 @@ export async function POST(request: Request): Promise<Response> {
       { "Content-Type": "application/json" },
       sessionCookie
     );
-  } catch (error) {
+  } catch (error: any) {
     console.error("Create session error", error);
+    
+    // Handle user not found specifically
+    if (error.message === "User not found in Firebase Authentication.") {
+        return buildJsonResponse(
+            { error: "User not found" },
+            404, 
+            { "Content-Type": "application/json" },
+            sessionCookie
+        );
+    }
+
     return buildJsonResponse(
       { error: "Unexpected error" },
       500,
@@ -177,12 +205,31 @@ function methodNotAllowedResponse(): Response {
   });
 }
 
-async function resolveUserId(request: Request): Promise<{
+// 5. Updated Resolver Logic
+async function resolveUserId(
+    request: Request, 
+    email: string | null
+): Promise<{
   userId: string;
   sessionCookie: string | null;
 }> {
+  
+  // A. PRIORITY: If email is provided, verify against Firebase Auth
+  if (email) {
+      try {
+        // Use Firebase Admin SDK to look up the user by email
+        // This confirms the email exists in your system and gets the secure UID.
+        const userRecord = await getAuth().getUserByEmail(email);
+        return { userId: userRecord.uid, sessionCookie: null };
+      } catch (error) {
+        console.error("[resolveUserId] Firebase lookup failed for email:", email, error);
+        throw new Error("User not found in Firebase Authentication.");
+      }
+  }
+
+  // B. FALLBACK: Use existing cookie or generate anonymous ID (if applicable)
   const existing = getCookieValue(
-    request. headers.get("cookie"),
+    request.headers.get("cookie"),
     SESSION_COOKIE_NAME
   );
   if (existing) {
@@ -192,7 +239,7 @@ async function resolveUserId(request: Request): Promise<{
   const generated =
     typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
-      : Math. random().toString(36).slice(2);
+      : Math.random().toString(36).slice(2);
 
   return {
     userId: generated,
@@ -210,12 +257,12 @@ function getCookieValue(
 
   const cookies = cookieHeader.split(";");
   for (const cookie of cookies) {
-    const [rawName, ...rest] = cookie. split("=");
-    if (! rawName || rest.length === 0) {
+    const [rawName, ...rest] = cookie.split("=");
+    if (!rawName || rest.length === 0) {
       continue;
     }
     if (rawName.trim() === name) {
-      return rest.join("="). trim();
+      return rest.join("=").trim();
     }
   }
   return null;
@@ -282,18 +329,18 @@ function extractUpstreamError(
     error &&
     typeof error === "object" &&
     "message" in error &&
-    typeof (error as { message?: unknown }). message === "string"
+    typeof (error as { message?: unknown }).message === "string"
   ) {
     return (error as { message: string }).message;
   }
 
-  const details = payload. details;
+  const details = payload.details;
   if (typeof details === "string") {
     return details;
   }
 
   if (details && typeof details === "object" && "error" in details) {
-    const nestedError = (details as { error?: unknown }). error;
+    const nestedError = (details as { error?: unknown }).error;
     if (typeof nestedError === "string") {
       return nestedError;
     }
