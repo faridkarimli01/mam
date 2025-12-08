@@ -1,4 +1,5 @@
 import { WORKFLOW_ID } from "@/lib/config";
+import { db } from "@/lib/firebase-admin";
 
 export const runtime = "edge";
 
@@ -41,7 +42,7 @@ export async function POST(request: Request): Promise<Response> {
       await resolveUserId(request);
     sessionCookie = resolvedSessionCookie;
     const resolvedWorkflowId =
-      parsedBody?.workflow?.id ?? parsedBody?.workflowId ?? WORKFLOW_ID;
+      parsedBody?.workflow?. id ??  parsedBody?.workflowId ??  WORKFLOW_ID;
 
     if (process.env.NODE_ENV !== "production") {
       console.info("[create-session] handling request", {
@@ -59,7 +60,7 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    const apiBase = process.env.CHATKIT_API_BASE ?? DEFAULT_CHATKIT_BASE;
+    const apiBase = process.env.CHATKIT_API_BASE ??  DEFAULT_CHATKIT_BASE;
     const url = `${apiBase}/v1/chatkit/sessions`;
     const upstreamResponse = await fetch(url, {
       method: "POST",
@@ -74,7 +75,7 @@ export async function POST(request: Request): Promise<Response> {
         chatkit_configuration: {
           file_upload: {
             enabled:
-              parsedBody?.chatkit_configuration?.file_upload?.enabled ?? false,
+              parsedBody?.chatkit_configuration?.file_upload?.enabled ??  false,
           },
         },
       }),
@@ -87,11 +88,11 @@ export async function POST(request: Request): Promise<Response> {
       });
     }
 
-    const upstreamJson = (await upstreamResponse.json().catch(() => ({}))) as
+    const upstreamJson = (await upstreamResponse.json(). catch(() => ({}))) as
       | Record<string, unknown>
       | undefined;
 
-    if (!upstreamResponse.ok) {
+    if (! upstreamResponse.ok) {
       const upstreamError = extractUpstreamError(upstreamJson);
       console.error("OpenAI ChatKit session creation failed", {
         status: upstreamResponse.status,
@@ -101,7 +102,7 @@ export async function POST(request: Request): Promise<Response> {
       return buildJsonResponse(
         {
           error:
-            upstreamError ??
+            upstreamError ?? 
             `Failed to create session: ${upstreamResponse.statusText}`,
           details: upstreamJson,
         },
@@ -111,8 +112,38 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    const clientSecret = upstreamJson?.client_secret ?? null;
+    const clientSecret = upstreamJson?.client_secret ??  null;
     const expiresAfter = upstreamJson?.expires_after ?? null;
+
+    // ============================================
+    // FIREBASE INTEGRATION - Store session data
+    // ============================================
+    try {
+      await db.collection("sessions"). doc(userId).set(
+        {
+          userId,
+          workflowId: resolvedWorkflowId,
+          clientSecret,
+          expiresAfter,
+          createdAt: new Date(). toISOString(),
+          updatedAt: new Date().toISOString(),
+          fileUploadEnabled:
+            parsedBody?.chatkit_configuration?.file_upload?.enabled ?? false,
+        },
+        { merge: true }
+      );
+
+      if (process.env.NODE_ENV !== "production") {
+        console.info("[create-session] Firebase session stored", {
+          userId,
+          workflowId: resolvedWorkflowId,
+        });
+      }
+    } catch (firebaseError) {
+      console. error("[create-session] Firebase error", firebaseError);
+      // Don't fail the request if Firebase errors, just log it
+    }
+
     const responsePayload = {
       client_secret: clientSecret,
       expires_after: expiresAfter,
@@ -151,7 +182,7 @@ async function resolveUserId(request: Request): Promise<{
   sessionCookie: string | null;
 }> {
   const existing = getCookieValue(
-    request.headers.get("cookie"),
+    request. headers.get("cookie"),
     SESSION_COOKIE_NAME
   );
   if (existing) {
@@ -161,7 +192,7 @@ async function resolveUserId(request: Request): Promise<{
   const generated =
     typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
-      : Math.random().toString(36).slice(2);
+      : Math. random().toString(36).slice(2);
 
   return {
     userId: generated,
@@ -179,12 +210,12 @@ function getCookieValue(
 
   const cookies = cookieHeader.split(";");
   for (const cookie of cookies) {
-    const [rawName, ...rest] = cookie.split("=");
-    if (!rawName || rest.length === 0) {
+    const [rawName, ...rest] = cookie. split("=");
+    if (! rawName || rest.length === 0) {
       continue;
     }
     if (rawName.trim() === name) {
-      return rest.join("=").trim();
+      return rest.join("="). trim();
     }
   }
   return null;
@@ -251,18 +282,18 @@ function extractUpstreamError(
     error &&
     typeof error === "object" &&
     "message" in error &&
-    typeof (error as { message?: unknown }).message === "string"
+    typeof (error as { message?: unknown }). message === "string"
   ) {
     return (error as { message: string }).message;
   }
 
-  const details = payload.details;
+  const details = payload. details;
   if (typeof details === "string") {
     return details;
   }
 
   if (details && typeof details === "object" && "error" in details) {
-    const nestedError = (details as { error?: unknown }).error;
+    const nestedError = (details as { error?: unknown }). error;
     if (typeof nestedError === "string") {
       return nestedError;
     }
